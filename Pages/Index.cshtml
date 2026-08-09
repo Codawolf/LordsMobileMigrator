@@ -1,0 +1,291 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Chalice Targets - Lords Mobile Migrator";
+}
+
+<div class="container-fluid px-4 mt-4">
+    @if (!Model.IsAuthenticated)
+    {
+        <!-- SECURITY BLOCK WALL: Displayed for unauthorized traffic visitors -->
+        <div class="row justify-content-center mt-5">
+            <div class="col-md-5">
+                <div class="card shadow-lg border-0 mt-5">
+                    <div class="card-header bg-dark text-white text-center py-3 rounded-top">
+                        <h4 class="mb-0">🔒 Guild Core Login Required</h4>
+                        <small class="text-muted text-light opacity-75">Lords Mobile Migration Dashboard</small>
+                    </div>
+                    <div class="card-body p-4 bg-light">
+                        @if (!string.IsNullOrEmpty(Model.LoginErrorMessage))
+                        {
+                            <div class="alert alert-danger text-center font-monospace small">@Model.LoginErrorMessage</div>
+                        }
+                        <form method="post" asp-page-handler="Login">
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Master Access Password</label>
+                                <input type="password" asp-for="EnteredPassword" class="form-control form-control-lg text-center" placeholder="••••••••" required autofocus />
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-lg w-100 shadow-sm">Unlock Matrix</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- MAIN DASHBOARD CONTENT AREA: Rendered safely after verification pass -->
+        <div class="d-flex justify-content-between align-items-center flex-wrap bg-dark text-white p-3 rounded mb-3 shadow-sm">
+            <div>
+                <h4 class="mb-0">🛡️ Lords Mobile Migration & Trend Tracker</h4>
+                <small class="text-warning fw-bold">
+                    🕒 Last Upload: <span class="local-timestamp" data-utc="@Model.LastUploadDisplay">Loading...</span>
+                </small>
+            </div>
+
+            <!-- SECURE CONTROLS: Placed inside a clean horizontal flex action container -->
+            <div class="d-flex gap-2">
+                <!-- 1. SECURE LOGOUT TRACE LINK BUTTON -->
+                <form method="post" asp-page-handler="Logout">
+                    <button type="submit" class="btn btn-outline-light btn-sm">🔓 Log Out</button>
+                </form>
+
+                <!-- 2. SYSTEM DATA CYCLE RESET BUTTON -->
+                <form method="post" asp-page-handler="ResetData" onsubmit="return confirm('Delete historical logs and start a new cycle?');">
+                    <button type="submit" class="btn btn-danger btn-sm">🗑️ Reset Cycle Data</button>
+                </form>
+            </div>
+        </div>
+        
+        <form id="filterForm" method="post" enctype="multipart/form-data" class="card p-3 bg-light my-3 shadow-sm">
+            @Html.AntiForgeryToken()
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-primary">Upload Fresh Kingdom Data (.xlsx)</label>
+                    <input type="file" name="Upload" class="form-control" onchange="this.form.submit();" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-danger">Active Chalice Kingdoms</label>
+                    <input type="text" id="ChaliceInput" name="ChaliceInput" class="form-control auto-save" value="@Model.ChaliceInput" placeholder="e.g. 1 3 45" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-info">Watched Kingdoms</label>
+                    <input type="text" id="WatchedInput" name="WatchedInput" class="form-control auto-save" value="@Model.WatchedInput" placeholder="e.g. 102 105 201" />
+                </div>
+                
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Min Active Population</label>
+                    <input type="number" id="MinPop" name="MinPop" class="form-control auto-save" value="@Model.MinPop" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Max Active Population</label>
+                    <input type="number" id="MaxPop" name="MaxPop" class="form-control auto-save" value="@Model.MaxPop" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Max Allowed Champ Accessories</label>
+                    <input type="number" id="MaxAccessories" name="MaxAccessories" class="form-control auto-save" value="@Model.MaxAccessories" />
+                </div>
+            </div>
+        </form>
+
+        @if (Model.ProcessedKingdoms.Any())
+        {
+            var chaliceTargets = Model.ProcessedKingdoms.Where(k => k.IsChaliceKingdom).ToList();
+
+            <ul class="nav nav-tabs mt-4">
+                <li class="nav-item">
+                    <a class="nav-link active fw-bold text-danger shadow-sm" href="#">🔥 Active Chalice Kingdoms (@chaliceTargets.Count)</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link fw-bold text-success" href="/OpenTargets">✅ Open Targets</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link fw-bold text-info" href="/WatchedTargets">👁️ Watched Kingdoms</a>
+                </li>
+            </ul>
+
+            <div class="border border-top-0 p-3 bg-white shadow-sm rounded-bottom">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle mt-2 table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Kingdom</th>
+                                <th>Active Castles</th>
+                                <th>Active Change</th>
+                                <th>Inactive Castles</th>
+                                <th>Inactive Change</th>
+                                <th>Scroll Cost</th>
+                                <th>P50 Might</th>
+                                <th>Champ Accessories</th>
+                                <th>Time Till Wonder War</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var k in chaliceTargets)
+                            {
+                                <tr class="@(k.IsDisregarded ? "table-warning border-warning" : "table-light")">
+                                    <td class="fw-bold">
+                                        <!-- FIXED: Passing the data parameter explicitly prevents race conditions -->
+                                        <button type="button"
+                                                class="btn btn-sm btn-link p-0 fw-bold text-decoration-none"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#trendModal"
+                                                data-kd="@k.KingdomNumber">
+                                            #@k.KingdomNumber 📊
+                                        </button>
+                                    </td>
+                                    <td>@k.CurrentActive.ToString("N0")</td>
+                                    <td class="@(k.ActiveChange > 0 ? "text-success fw-bold" : k.ActiveChange < 0 ? "text-danger" : "")">
+                                        @(k.ActiveChange >= 0 ? "+" : "")@k.ActiveChange
+                                    </td>
+                                    <td>@k.CurrentInactive.ToString("N0")</td>
+                                    <td class="@(k.InactiveChange > 0 ? "text-warning" : "text-muted")">
+                                        @(k.InactiveChange >= 0 ? "+" : "")@k.InactiveChange
+                                    </td>
+                                    <td>📜 @k.MigrationCost</td>
+                                    <td>@k.P50MightDisplay</td>
+                                    <td>🛡️ @k.AccessoriesChamps</td>
+                                    <td>@k.TimeTillWowSummary</td>
+                                    <td class="fw-bold">
+                                        @if (k.IsDisregarded) { <span class="text-danger">⚠️ Disregarded</span> }
+                                        else { <span class="text-success">⭐ Prime Target</span> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+        <!-- SYSTEM ADMINISTRATION FOOTER BOX: Change Dashboard Lock Password -->
+        <div class="card p-3 bg-light border-0 shadow-sm mt-5 col-md-4">
+            <h6 class="fw-bold text-muted mb-2">⚙️ Update Master Access Password</h6>
+            <form method="post" asp-page-handler="UpdatePassword" class="d-flex gap-2">
+                <!-- Ensure your input element tag handles text bindings explicitly -->
+                <input type="text" name="NewPasswordSetting" class="form-control form-control-sm" placeholder="Enter new password" required />
+                <button type="submit" class="btn btn-secondary btn-sm px-3">Save Key</button>
+            </form>
+        </div>
+    }
+    <!-- SYSTEM TREND MODAL POPUP GATEWAY -->
+    <!-- SYSTEM TREND MODAL POPUP GATEWAY -->
+    <div class="modal fade" id="trendModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow-lg">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title" id="trendModalTitle">Kingdom Population Trend</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body bg-light p-4">
+                    <div style="position: relative; height:350px; width:100%;">
+                        <canvas id="kingdomTrendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FIXED: Full, verified CDN script library path link for Chart.js -->
+    <script src="~/js/chart.js" asp-append-version="true"></script>
+</div>
+
+<script>
+    let globalChartInstance = null; // Stored globally at the top level
+
+    document.addEventListener("DOMContentLoaded", function() {
+        let timeout = null;
+
+        // 1. Auto-save Filter Tracking Engine
+        document.querySelectorAll('.auto-save').forEach(input => {
+            input.addEventListener('input', function() {
+                clearTimeout(timeout);
+                timeout = setTimeout(submitFilters, 600);
+            });
+        });
+
+        function submitFilters() {
+            const formData = new FormData();
+            formData.append("ChaliceInput", document.getElementById("ChaliceInput").value);
+            formData.append("WatchedInput", document.getElementById("WatchedInput").value);
+            formData.append("MinPop", document.getElementById("MinPop").value);
+            formData.append("MaxPop", document.getElementById("MaxPop").value);
+            formData.append("MaxAccessories", document.getElementById("MaxAccessories").value);
+
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+            fetch('?handler=UpdateFilters', {
+                method: 'POST',
+                body: formData,
+                headers: { "RequestVerificationToken": token }
+            }).then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        console.log("🟢 Centralized filters synced successfully!");
+                        window.location.reload();
+                    }
+                });
+        }
+
+        // 2. FIXED: Positioned directly at the root baseline level of the main script block
+        const modalElement = document.getElementById('trendModal');
+        if (modalElement) {
+            modalElement.addEventListener('shown.bs.modal', function(event) {
+                const button = event.relatedTarget;
+                const kingdomNum = button.getAttribute('data-kd');
+
+                document.getElementById("trendModalTitle").innerText = `📊 Kingdom #${kingdomNum} Population Timeline`;
+
+                fetch(`?handler=KingdomHistory&kingdomNumber=${kingdomNum}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        const labels = data.map(item => item.date);
+                        const activeCounts = data.map(item => item.active);
+
+                        const chartCanvas = document.getElementById('kingdomTrendChart');
+                        if (!chartCanvas) return;
+
+                        const ctx = chartCanvas.getContext('2d');
+
+                        if (globalChartInstance) { globalChartInstance.destroy(); }
+
+                        globalChartInstance = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: labels,
+                                datasets: [{
+                                    label: 'Active Castles Counts',
+                                    data: activeCounts,
+                                    borderColor: '#198754',
+                                    backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                                    borderWidth: 3,
+                                    tension: 0.2,
+                                    fill: true
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                // Enforces perfect fitting within the parent wrapper container
+                                GeistRatio: false,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    y: { beginAtZero: false, ticks: { precision: 0 } }
+                                }
+                            }
+                        });
+                    });
+            });
+        }
+    });
+    // BROWSER LOCAL TIMEZONE CONVERTER ENGINE
+    document.querySelectorAll('.local-timestamp').forEach(el => {
+        const utcString = el.getAttribute('data-utc');
+        if (utcString && utcString !== "No Data Uploaded") {
+            const date = new Date(utcString);
+            // Converts the string flawlessly to your local device's clock setting
+            el.innerText = date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+        } else {
+            el.innerText = "No Data Uploaded";
+        }
+    });
+</script> 

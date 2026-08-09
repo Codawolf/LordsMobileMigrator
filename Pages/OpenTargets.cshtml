@@ -1,0 +1,178 @@
+﻿@page
+@model OpenTargetsModel
+@{
+    ViewData["Title"] = "Open Targets - Lords Mobile Migrator";
+}
+
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap bg-dark text-white p-3 rounded mb-3 shadow-sm">
+        <div>
+            <h4 class="mb-0">🛡️ Lords Mobile Migration & Trend Tracker</h4>
+            <small class="text-warning fw-bold">
+                🕒 Last Upload: <span class="local-timestamp" data-utc="@Model.LastUploadDisplay">Loading...</span>
+            </small>
+        </div>
+        <a href="/" class="btn btn-outline-light btn-sm">🔙 Back to Main Settings</a>
+    </div>
+
+    @if (Model.OpenKingdoms.Any())
+    {
+        <ul class="nav nav-tabs mt-4">
+            <li class="nav-item">
+                <a class="nav-link fw-bold text-danger" href="/">🔥 Active Chalice Kingdoms</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link active fw-bold text-success shadow-sm" href="#">✅ Open Targets (@Model.OpenKingdoms.Count)</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link fw-bold text-info" href="/WatchedTargets">👁️ Watched Kingdoms</a>
+            </li>
+        </ul>
+
+        <div class="border border-top-0 p-3 bg-white shadow-sm rounded-bottom">
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped align-middle mt-2 table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Kingdom</th>
+                            <th>Active Castles</th>
+                            <th>Active Change</th>
+                            <th>Inactive Castles</th>
+                            <th>Inactive Change</th>
+                            <th>Scroll Cost</th>
+                            <th>P50 Might</th>
+                            <th>Champ Accessories</th>
+                            <th>Time Till Wonder War</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var k in Model.OpenKingdoms)
+                        {
+                            <tr>
+                                <td class="fw-bold">
+                                    <button type="button"
+                                            class="btn btn-sm btn-link p-0 fw-bold text-decoration-none text-success"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#trendModal"
+                                            data-kd="@k.KingdomNumber">
+                                        #@k.KingdomNumber 📊
+                                    </button>
+                                </td>
+                                <td>@k.CurrentActive.ToString("N0")</td>
+                                <td class="@(k.ActiveChange > 0 ? "text-success fw-bold" : k.ActiveChange < 0 ? "text-danger" : "")">
+                                    @(k.ActiveChange >= 0 ? "+" : "")@k.ActiveChange
+                                </td>
+                                <td>@k.CurrentInactive.ToString("N0")</td>
+                                <td class="@(k.InactiveChange > 0 ? "text-warning" : "text-muted")">
+                                    @(k.InactiveChange >= 0 ? "+" : "")@k.InactiveChange
+                                </td>
+                                <td>📜 @k.MigrationCost</td>
+                                <td>@k.P50MightDisplay</td>
+                                <td>🛡️ @k.AccessoriesChamps</td>
+                                <td>
+                                    @if (k.TotalHoursToWow > 0 && k.TotalHoursToWow < 24)
+                                    {
+                                        <span class="badge bg-danger text-white">⚠️ @k.TimeTillWowSummary</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-secondary">🕒 @k.TimeTillWowSummary</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info mt-4 shadow-sm">
+            No data uploaded yet, or no open kingdoms match your current active baseline requirements. Go back to the <a href="/" class="alert-link">Chalice Targets page</a> to process your data file.
+        </div>
+    }
+    <!-- SYSTEM TREND MODAL POPUP GATEWAY -->
+    <div class="modal fade" id="trendModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow-lg">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title" id="trendModalTitle">Kingdom Population Trend</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body bg-light p-4">
+                    <div style="position: relative; height:350px; width:100%;">
+                        <canvas id="kingdomTrendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Local Chart.js engine link -->
+    <script src="~/js/chart.js" asp-append-version="true"></script>
+</div>
+
+<script>
+    let globalChartInstance = null;
+
+    document.addEventListener("DOMContentLoaded", function () {
+        const modalElement = document.getElementById('trendModal');
+        if (modalElement) {
+            modalElement.addEventListener('shown.bs.modal', function (event) {
+                const button = event.relatedTarget;
+                const kingdomNum = button.getAttribute('data-kd');
+
+                document.getElementById("trendModalTitle").innerText = `📊 Kingdom #${kingdomNum} Population Timeline`;
+
+                // Fetch history directly from your core handler endpoint route
+                fetch(`/?handler=KingdomHistory&kingdomNumber=${kingdomNum}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        const labels = data.map(item => item.date);
+                        const activeCounts = data.map(item => item.active);
+
+                        const chartCanvas = document.getElementById('kingdomTrendChart');
+                        if (!chartCanvas) return;
+
+                        const ctx = chartCanvas.getContext('2d');
+                        if (globalChartInstance) { globalChartInstance.destroy(); }
+
+                        globalChartInstance = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: labels,
+                                datasets: [{
+                                    label: 'Active Castles Counts',
+                                    data: activeCounts,
+                                    borderColor: '#198754',
+                                    backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                                    borderWidth: 3,
+                                    tension: 0.2,
+                                    fill: true
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    y: { beginAtZero: false, ticks: { precision: 0 } }
+                                }
+                            }
+                        });
+                    });
+            });
+        }
+    });
+    // BROWSER LOCAL TIMEZONE CONVERTER ENGINE
+    document.querySelectorAll('.local-timestamp').forEach(el => {
+        const utcString = el.getAttribute('data-utc');
+        if (utcString && utcString !== "No Data Uploaded") {
+            const date = new Date(utcString);
+            // Converts the string flawlessly to your local device's clock setting
+            el.innerText = date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+        } else {
+            el.innerText = "No Data Uploaded";
+        }
+    });
+</script>
