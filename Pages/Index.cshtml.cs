@@ -168,7 +168,7 @@ public class IndexModel : PageModel
             {
                 // Formats the timestamp nicely for the chart timeline axis label
                 Date = s.Timestamp.ToLocalTime().ToString("MM/dd HH:mm"),
-                Active = s.ActiveCastles
+                Castles = s.Castles
             })
             .ToList();
 
@@ -428,9 +428,9 @@ public class IndexModel : PageModel
         return new DisplayKingdomRow
         {
             KingdomNumber = curr.KingdomNumber,
-            CurrentActive = curr.ActiveCastles,
+            CurrentActive = curr.Castles,
             CurrentInactive = curr.InactiveCastles,
-            ActiveChange = prev != null ? (curr.ActiveCastles - prev.ActiveCastles) : 0,
+            ActiveChange = prev != null ? (curr.Castles - prev.Castles) : 0,
             InactiveChange = prev != null ? (curr.InactiveCastles - prev.InactiveCastles) : 0,
             MigrationCost = curr.MigrationCost,
             P50MightDisplay = (curr.P50Might / 1000000000.0).ToString("0.0") + "B",

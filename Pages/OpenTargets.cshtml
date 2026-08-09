@@ -35,7 +35,7 @@
                     <thead class="table-dark">
                         <tr>
                             <th>Kingdom</th>
-                            <th>Active Castles</th>
+                            <th>Total Castles</th>
                             <th>Active Change</th>
                             <th>Inactive Castles</th>
                             <th>Inactive Change</th>
@@ -130,7 +130,7 @@
                     .then(res => res.json())
                     .then(data => {
                         const labels = data.map(item => item.date);
-                        const activeCounts = data.map(item => item.active);
+                        const castleCounts = data.map(item => item.castles);
 
                         const chartCanvas = document.getElementById('kingdomTrendChart');
                         if (!chartCanvas) return;
@@ -143,8 +143,8 @@
                             data: {
                                 labels: labels,
                                 datasets: [{
-                                    label: 'Active Castles Counts',
-                                    data: activeCounts,
+                                    label: 'Total Castle Count',
+                                    data: castleCounts,
                                     borderColor: '#198754',
                                     backgroundColor: 'rgba(25, 135, 84, 0.1)',
                                     borderWidth: 3,
