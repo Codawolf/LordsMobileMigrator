@@ -243,6 +243,13 @@ public class IndexModel : PageModel
             );";
         command.ExecuteNonQuery();
 
+        command.CommandText = @"
+            CREATE TABLE IF NOT EXISTS ""Notes"" (
+                ""KingdomNumber"" INTEGER NOT NULL PRIMARY KEY,
+                ""Text"" TEXT NOT NULL
+            );";
+        command.ExecuteNonQuery();
+
         // 3. SCHEMA INSPECTION: Verify the operational settings layout
         bool watchedExists = false;
         bool passwordExists = false;
@@ -421,9 +428,11 @@ public class IndexModel : PageModel
 
     private DisplayKingdomRow MapToDisplayRow(KingdomSnapshot curr, Dictionary<int, KingdomSnapshot> historicalData, HashSet<int> chaliceSet, GlobalSetting config)
     {
+        using var db = new AppDbContext();
         historicalData.TryGetValue(curr.KingdomNumber, out var prev);
         bool isChalice = chaliceSet.Contains(curr.KingdomNumber);
-        bool failsFilters = curr.ActiveCastles < config.MinPop || curr.ActiveCastles > config.MaxPop || curr.AccessoriesChamps > config.MaxAccessories;
+        bool failsFilters = curr.Castles < config.MinPop || curr.Castles > config.MaxPop || curr.AccessoriesChamps > config.MaxAccessories;
+        var noteRecord = db.Notes.FirstOrDefault(n => n.KingdomNumber == curr.KingdomNumber);
 
         return new DisplayKingdomRow
         {
@@ -437,8 +446,11 @@ public class IndexModel : PageModel
             AccessoriesChamps = curr.AccessoriesChamps,
             TimeTillWowSummary = curr.TimeTillWowSummary,
             TotalHoursToWow = curr.TimeTillWowMinutes / 60.0,
+            TimeTillWowMinutes = curr.TimeTillWowMinutes,
             IsChaliceKingdom = isChalice,
-            IsDisregarded = failsFilters
+            IsDisregarded = failsFilters,
+            NotesDisplay = noteRecord != null ? noteRecord.Text : string.Empty
+
         };
     }
 
@@ -468,6 +480,30 @@ public class IndexModel : PageModel
         config.MaxPop = MaxPop;
         config.MaxAccessories = MaxAccessories;
     }
+    public IActionResult OnPostSaveKingdomNote(int kingdomNumber, string noteText)
+    {
+        using var db = new AppDbContext();
+
+        var config = db.Settings.FirstOrDefault(s => s.Key == "Config") ?? GetOrInitSettings(db);
+        string? authCookie = Request.Cookies["LordsTrackerAuth"];
+        if (authCookie != config.AdminPassword) return new StatusCodeResult(403);
+
+        var existingNote = db.Notes.FirstOrDefault(n => n.KingdomNumber == kingdomNumber);
+        string safeText = noteText ?? string.Empty;
+
+        if (existingNote != null)
+        {
+            existingNote.Text = safeText;
+        }
+        else
+        {
+            db.Notes.Add(new KingdomNote { KingdomNumber = kingdomNumber, Text = safeText });
+        }
+
+        db.SaveChanges();
+        return new JsonResult(new { success = true, currentText = safeText });
+    }
+
 }
 
 

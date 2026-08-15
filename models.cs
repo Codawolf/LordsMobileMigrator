@@ -5,6 +5,7 @@ public class AppDbContext : DbContext
 {
     public DbSet<KingdomSnapshot> Snapshots { get; set; } = null!;
     public DbSet<GlobalSetting> Settings { get; set; } = null!;
+    public DbSet<KingdomNote> Notes { get; set; } = null!; // NEW REPOSITORY TABLE
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
@@ -14,7 +15,12 @@ public class AppDbContext : DbContext
 
     }
 }
-
+public class KingdomNote
+{
+    [Key]
+    public int KingdomNumber { get; set; }
+    public string Text { get; set; } = string.Empty;
+}
 public class KingdomSnapshot
 {
     [Key]
@@ -62,7 +68,9 @@ public class DisplayKingdomRow
     public int AccessoriesChamps { get; set; }
     public string TimeTillWowSummary { get; set; } = string.Empty;
     public double TotalHoursToWow { get; set; }
+    public int TimeTillWowMinutes { get; set; }
     public bool IsChaliceKingdom { get; set; }
     public bool IsWatchedKingdom { get; set; } // NEW FIELD: Tracks if it matches your watched data array
     public bool IsDisregarded { get; set; }
+    public string NotesDisplay { get; set; } = string.Empty;
 }

@@ -11,8 +11,14 @@ public class OpenTargetsModel : PageModel
         using var db = new AppDbContext();
         db.Database.EnsureCreated();
 
-        // Pull centralized master configuration values from table row
+        // Security check verification pass
         var config = db.Settings.FirstOrDefault(s => s.Key == "Config") ?? new GlobalSetting();
+        string? authCookie = Request.Cookies["LordsTrackerAuth"];
+        if (authCookie != config.AdminPassword)
+        {
+            Response.Redirect("/");
+            return;
+        }
 
         var latestTimestamp = db.Snapshots
             .OrderByDescending(s => s.Timestamp)
@@ -34,6 +40,9 @@ public class OpenTargetsModel : PageModel
             ? db.Snapshots.Where(s => s.Timestamp == priorTimestamp).ToDictionary(s => s.KingdomNumber)
             : new Dictionary<int, KingdomSnapshot>();
 
+        // FETCH NOTES INDEX: Builds a fast look-up map to prevent multiple database queries
+        var notesLookup = db.Notes.ToDictionary(n => n.KingdomNumber, n => n.Text);
+
         var chaliceSet = new HashSet<int>();
         if (!string.IsNullOrWhiteSpace(config.ChaliceInput))
         {
@@ -44,6 +53,10 @@ public class OpenTargetsModel : PageModel
         OpenKingdoms = currentSnapshots
             .Select(curr => {
                 historicalData.TryGetValue(curr.KingdomNumber, out var prev);
+
+                // Read from memory check dictionary
+                notesLookup.TryGetValue(curr.KingdomNumber, out var noteText);
+
                 return new DisplayKingdomRow
                 {
                     KingdomNumber = curr.KingdomNumber,
@@ -56,14 +69,18 @@ public class OpenTargetsModel : PageModel
                     AccessoriesChamps = curr.AccessoriesChamps,
                     TimeTillWowSummary = curr.TimeTillWowSummary,
                     TotalHoursToWow = curr.TimeTillWowMinutes / 60.0,
-                    IsChaliceKingdom = chaliceSet.Contains(curr.KingdomNumber)
+                    IsChaliceKingdom = chaliceSet.Contains(curr.KingdomNumber),
+                    TimeTillWowMinutes = curr.TimeTillWowMinutes,
+
+                    // FIXED: Assigns notes text properties dynamically inside loop tracking structures
+                    NotesDisplay = noteText ?? string.Empty
                 };
             })
-            // Enforce synchronized parameters from shared db row
             .Where(k => !k.IsChaliceKingdom && k.CurrentActive >= config.MinPop && k.CurrentActive <= config.MaxPop && k.AccessoriesChamps <= config.MaxAccessories)
             .OrderBy(k => k.MigrationCost)
             .ThenBy(k => k.KingdomNumber)
             .ThenBy(k => k.TotalHoursToWow)
             .ToList();
     }
+
 }

@@ -12,6 +12,12 @@ public class WatchedTargetsModel : PageModel
         db.Database.EnsureCreated();
 
         var config = db.Settings.FirstOrDefault(s => s.Key == "Config") ?? new GlobalSetting();
+        string? authCookie = Request.Cookies["LordsTrackerAuth"];
+        if (authCookie != config.AdminPassword)
+        {
+            Response.Redirect("/");
+            return;
+        }
 
         var latestTimestamp = db.Snapshots
             .OrderByDescending(s => s.Timestamp)
@@ -33,6 +39,9 @@ public class WatchedTargetsModel : PageModel
             ? db.Snapshots.Where(s => s.Timestamp == priorTimestamp).ToDictionary(s => s.KingdomNumber)
             : new Dictionary<int, KingdomSnapshot>();
 
+        // FETCH NOTES INDEX: Same high-performance look-up mapping block
+        var notesLookup = db.Notes.ToDictionary(n => n.KingdomNumber, n => n.Text);
+
         var watchedSet = new HashSet<int>();
         if (!string.IsNullOrWhiteSpace(config.WatchedInput))
         {
@@ -45,9 +54,13 @@ public class WatchedTargetsModel : PageModel
                 historicalData.TryGetValue(curr.KingdomNumber, out var prev);
 
                 bool isWatched = watchedSet.Contains(curr.KingdomNumber);
-                bool failsFilters = curr.ActiveCastles < config.MinPop ||
-                                    curr.ActiveCastles > config.MaxPop ||
+
+                // 1. Evaluate your strategy constraint validation checks accurately
+                bool failsFilters = curr.Castles < config.MinPop ||
+                                    curr.Castles > config.MaxPop ||
                                     curr.AccessoriesChamps > config.MaxAccessories;
+
+                notesLookup.TryGetValue(curr.KingdomNumber, out var noteText);
 
                 return new DisplayKingdomRow
                 {
@@ -63,10 +76,15 @@ public class WatchedTargetsModel : PageModel
                     TotalHoursToWow = curr.TimeTillWowMinutes / 60.0,
                     IsChaliceKingdom = false,
                     IsWatchedKingdom = isWatched,
-                    IsDisregarded = failsFilters
+                    IsDisregarded = failsFilters, // Flags the row status cell property accurately
+                    TimeTillWowMinutes = curr.TimeTillWowMinutes,
+                    NotesDisplay = noteText ?? string.Empty
                 };
             })
+            // 2. FIXED: Filter strictly by membership. Do not drop rows that fail parameters!
             .Where(k => k.IsWatchedKingdom)
+
+            // 3. FIXED: Group Prime Targets cleanly at the top and push Warnings to the bottom
             .OrderBy(k => k.IsDisregarded)
             .ThenBy(k => k.KingdomNumber)
             .ToList();

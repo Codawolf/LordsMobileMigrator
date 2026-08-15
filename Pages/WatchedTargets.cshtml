@@ -34,16 +34,17 @@
                 <table class="table table-bordered align-middle mt-2 table-hover">
                     <thead class="table-dark">
                         <tr>
-                            <th>Kingdom</th>
-                            <th>Total Castles</th>
-                            <th>Active Change</th>
+                            <th onclick="sortTable(0, 'num')" style="cursor: pointer;">Kingdom ↕️</th>
+                            <th onclick="sortTable(1, 'num')" style="cursor: pointer;">Total Castles ↕️</th>
+                            <th onclick="sortTable(2, 'num')" style="cursor: pointer;">Active Change ↕️</th>
                             <th>Inactive Castles</th>
                             <th>Inactive Change</th>
                             <th>Scroll Cost</th>
                             <th>P50 Might</th>
                             <th>Champ Accessories</th>
-                            <th>Time Till Wonder War</th>
+                            <th onclick="sortWowColumn(8)" style="cursor: pointer;">Time Till Wonder War ↕️</th>
                             <th>Status</th>
+                            <th>Notes</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -70,7 +71,12 @@
                                 <td>📜 @k.MigrationCost</td>
                                 <td>@k.P50MightDisplay</td>
                                 <td>🛡️ @k.AccessoriesChamps</td>
-                                <td>@k.TimeTillWowSummary</td>
+                                <td>
+                                    <!-- FIXED: Pulls your live remaining minutes from the updated Open Targets backend model -->
+                                    <span class="wow-countdown" data-initial-minutes="@k.TimeTillWowMinutes">
+                                        🕒 Calculating...
+                                    </span>
+                                </td>
                                 <td class="fw-bold">
                                     @if (k.IsDisregarded)
                                     {
@@ -81,6 +87,18 @@
 
                                         <span class="text-success">⭐ Prime Target</span>
                                     }
+                                </td>
+                                <td>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary py-0 text-start text-truncate w-100 px-1"
+                                            style="max-width: 130px; font-size:0.75rem;"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#noteModal"
+                                            data-kd="@k.KingdomNumber"
+                                            data-note-current="@k.NotesDisplay"
+                                            id="noteBtn-@k.KingdomNumber">
+                                        ✏️ @(string.IsNullOrWhiteSpace(k.NotesDisplay) ? "Add Note..." : k.NotesDisplay)
+                                    </button>
                                 </td>
                             </tr>
                         }
@@ -111,6 +129,29 @@
             </div>
         </div>
     </div>
+    <!-- INDEPENDENT REAL-TIME SYSTEM NOTE MODAL POPUP -->
+    <div class="modal fade" id="noteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white py-3">
+                    <h5 class="modal-title" id="noteModalTitle">📝 Kingdom Note</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body bg-light p-4">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" id="noteTargetKd" />
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted small text-uppercase">Strategic Directives</label>
+                        <textarea id="noteFieldText" class="form-control" rows="4" placeholder="Enter target profiles notes..."></textarea>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-success btn-sm px-4" onclick="executeNoteSave()">Save Strategy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Local Chart.js engine link -->
     <script src="~/js/chart.js" asp-append-version="true"></script>
@@ -119,16 +160,84 @@
 <script>
     let globalChartInstance = null;
 
-    document.addEventListener("DOMContentLoaded", function () {
+    document.addEventListener("DOMContentLoaded", function() {
+
+        // ==========================================
+        // 1. DYNAMIC REAL-TIME TIMED COUNTDOWN ENGINE
+        // ==========================================
+        const timestampEl = document.querySelector('.local-timestamp');
+        const fileUtcString = timestampEl ? timestampEl.getAttribute('data-utc') : null;
+
+        // Calculate exactly when the file was processed in milliseconds
+        let fileUploadMs = (fileUtcString && fileUtcString !== "No Data Uploaded")
+            ? new Date(fileUtcString).getTime()
+            : Date.now();
+
+        const countdownElements = document.querySelectorAll('.wow-countdown');
+        countdownElements.forEach(el => {
+            let initialMinutes = parseInt(el.getAttribute('data-initial-minutes'));
+            if (isNaN(initialMinutes) || initialMinutes <= 0) {
+                el.innerHTML = '<span class="text-danger fw-bold">💥 War Active / Over</span>';
+                return;
+            }
+
+            // MASTER CORRECTION math: Target Time = File Upload Time + Total Spreadsheet Duration Minutes
+            // This guarantees the clock automatically accounts for time elapsed since the pull!
+            let targetTime = fileUploadMs + (initialMinutes * 60 * 1000);
+            let timerId = null;
+
+            function updateClock() {
+                let remainingMs = targetTime - Date.now();
+
+                if (remainingMs <= 0) {
+                    el.innerHTML = '<span class="text-danger fw-bold">⚠️ War Commencing!</span>';
+                    if (timerId) clearInterval(timerId);
+                    return;
+                }
+
+                let days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
+                let hours = Math.floor((remainingMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                let minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+                let seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
+
+                let paddedHours = String(hours).padStart(2, '0');
+                let paddedMinutes = String(minutes).padStart(2, '0');
+                let paddedSeconds = String(seconds).padStart(2, '0');
+
+                if (days === 0 && hours < 24) {
+                    el.innerHTML = `<span class="badge bg-danger text-white">⚠️ ${paddedHours}:${paddedMinutes}:${paddedSeconds}</span>`;
+                } else {
+                    el.innerHTML = `<span class="text-dark font-monospace fw-bold">🕒 ${days}d, ${paddedHours}:${paddedMinutes}:${paddedSeconds}</span>`;
+                }
+            }
+
+            updateClock();
+            timerId = setInterval(updateClock, 1000);
+        });
+
+        // ==========================================
+        // 2. BROWSER LOCAL TIMEZONE CONVERTER ENGINE
+        // ==========================================
+        if (timestampEl) {
+            if (fileUtcString && fileUtcString !== "No Data Uploaded") {
+                const date = new Date(fileUtcString);
+                timestampEl.innerText = date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+            } else {
+                timestampEl.innerText = "No Data Uploaded";
+            }
+        }
+
+        // ==========================================
+        // 3. GRAPH TREND CHART POPUP ENGINE
+        // ==========================================
         const modalElement = document.getElementById('trendModal');
         if (modalElement) {
-            modalElement.addEventListener('shown.bs.modal', function (event) {
+            modalElement.addEventListener('shown.bs.modal', function(event) {
                 const button = event.relatedTarget;
                 const kingdomNum = button.getAttribute('data-kd');
 
                 document.getElementById("trendModalTitle").innerText = `📊 Kingdom #${kingdomNum} Population Timeline`;
 
-                // Fetch history directly from your core handler endpoint route
                 fetch(`/?handler=KingdomHistory&kingdomNumber=${kingdomNum}`)
                     .then(res => res.json())
                     .then(data => {
@@ -167,15 +276,88 @@
             });
         }
     });
-    // BROWSER LOCAL TIMEZONE CONVERTER ENGINE
-    document.querySelectorAll('.local-timestamp').forEach(el => {
-        const utcString = el.getAttribute('data-utc');
-        if (utcString && utcString !== "No Data Uploaded") {
-            const date = new Date(utcString);
-            // Converts the string flawlessly to your local device's clock setting
-            el.innerText = date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-        } else {
-            el.innerText = "No Data Uploaded";
-        }
-    });
+
+    // ==========================================
+    // 4. INTERACTIVE ROW SORTING ENGINES
+    // ==========================================
+    function sortTable(columnIndex, type) {
+        const table = document.querySelector(".table-hover") || document.querySelector(".table");
+        if (!table) return;
+        const tbody = table.querySelector("tbody");
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        let isAscending = table.getAttribute("data-sort-dir") !== "asc";
+        table.setAttribute("data-sort-dir", isAscending ? "asc" : "desc");
+
+        rows.sort((rowA, rowB) => {
+            let cellA = rowA.cells[columnIndex].innerText.replace(/[^0-9.-]/g, '').trim();
+            let cellB = rowB.cells[columnIndex].innerText.replace(/[^0-9.-]/g, '').trim();
+            if (type === 'num') return isAscending ? parseFloat(cellA) - parseFloat(cellB) : parseFloat(cellB) - parseFloat(cellA);
+            return isAscending ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+        });
+        rows.forEach(row => tbody.appendChild(row));
+    }
+
+    function sortWowColumn(columnIndex) {
+        const table = document.querySelector(".table-hover") || document.querySelector(".table");
+        if (!table) return;
+        const tbody = table.querySelector("tbody");
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        let isAscending = table.getAttribute("data-wow-sort-dir") !== "asc";
+        table.setAttribute("data-wow-sort-dir", isAscending ? "asc" : "desc");
+
+        rows.sort((rowA, rowB) => {
+            const spanA = rowA.cells[columnIndex].querySelector('.wow-countdown');
+            const spanB = rowB.cells[columnIndex].querySelector('.wow-countdown');
+            let minutesA = spanA ? parseInt(spanA.getAttribute('data-initial-minutes')) : 0;
+            let minutesB = spanB ? parseInt(spanB.getAttribute('data-initial-minutes')) : 0;
+            if (isNaN(minutesA) || minutesA <= 0) minutesA = isAscending ? 999999 : -999999;
+            if (isNaN(minutesB) || minutesB <= 0) minutesB = isAscending ? 999999 : -999999;
+            return isAscending ? minutesA - minutesB : minutesB - minutesA;
+        });
+        rows.forEach(row => tbody.appendChild(row));
+    }
+    // CENTRALIZED LIVE NOTES RUNTIME TRACKER
+    const noteModalElement = document.getElementById('noteModal');
+    if (noteModalElement) {
+        noteModalElement.addEventListener('show.bs.modal', function(event) {
+            const button = event.relatedTarget;
+            const kingdomNum = button.getAttribute('data-kd');
+            const currentNote = button.getAttribute('data-note-current') || "";
+
+            document.getElementById("noteModalTitle").innerText = `📝 Strategic Intelligence: Kingdom #${kingdomNum}`;
+            document.getElementById("noteTargetKd").value = kingdomNum;
+            document.getElementById("noteFieldText").value = currentNote;
+        });
+    }
+
+    window.executeNoteSave = function() {
+        const kingdomNum = document.getElementById("noteTargetKd").value;
+        const textValue = document.getElementById("noteFieldText").value;
+
+        const formData = new FormData();
+        formData.append("kingdomNumber", kingdomNum);
+        formData.append("noteText", textValue);
+
+        const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+        fetch('/Index?handler=SaveKingdomNote', {
+            method: 'POST',
+            body: formData,
+            headers: { "RequestVerificationToken": token }
+        }).then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // Update button label inside grid table instantly without reloading page layout canvas
+                    const btn = document.getElementById(`noteBtn-${kingdomNum}`);
+                    if (btn) {
+                        btn.setAttribute('data-note-current', data.currentText);
+                        btn.innerText = data.currentText.trim() === "" ? "✏️ Add Note..." : `✏️ ${data.currentText}`;
+                    }
+
+                    // Hide modal container cleanly
+                    bootstrap.Modal.getInstance(document.getElementById('noteModal')).hide();
+                }
+            });
+    };
 </script>
+
