@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using ExcelDataReader;
 using Microsoft.EntityFrameworkCore;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.ObjectPool;
 
 public class IndexModel : PageModel
 {
@@ -336,13 +337,32 @@ public class IndexModel : PageModel
         using (var reader = ExcelReaderFactory.CreateReader(s))
         {
             bool isHeader = true;
+            bool isOnyxFormat = false;
             while (reader.Read())
             {
-                if (isHeader) { isHeader = false; continue; }
+                if (isHeader)
+                { 
+                    //detect if this is from onyx by checking header row colmnn 7 if it says 50+ Blessed it is onynx
+                    if (reader.GetValue(7)?.ToString() == "50+ Blessed")
+                    {
+                        isHeader = false;
+                        isOnyxFormat = true;
+                        continue;
+                    }
+                }
                 try
                 {
                     // Pass the uniform shared uploadTime variable to the parser row loop
-                    newSnapshots.Add(ParseExcelRowToSnapshot(reader, uploadTime));
+                    if (!isOnyxFormat)
+                    {
+                        newSnapshots.Add(ParseExcelRowToSnapshot(reader, uploadTime));
+                    }
+                    else
+                    {
+                        newSnapshots.Add(ParseExcelRowToSnapshotOnyx(reader, uploadTime));
+
+                    }
+
                 }
                 catch { }
             }
@@ -402,6 +422,94 @@ public class IndexModel : PageModel
             SevenPlusChamps = Convert.ToInt32(reader.GetValue(11)),
             AccessoriesChamps = Convert.ToInt32(reader.GetValue(12))
         };
+    }
+    private KingdomSnapshot ParseExcelRowToSnapshotOnyx(IExcelDataReader reader, DateTime uploadTime)
+    {
+        string rawMight = reader.GetValue(5)?.ToString() ?? "0";
+        long mightVal = 0;
+
+        // FIXED adaptive parsing routine: Handles both raw integers and custom text variations like '3.8B' safely!
+        if (double.TryParse(rawMight, out double parsedDouble))
+        {
+            // If the source cells are unformatted raw integer values (e.g., 1657700485)
+            // If it is already a massive raw number over 1 million, map it directly as bytes
+            if (parsedDouble > 1000000)
+            {
+                mightVal = (long)parsedDouble;
+            }
+            else
+            {
+                // Fallback if the cell just says '3.8' instead of '3.8B'
+                mightVal = (long)(parsedDouble * 1000000000);
+            }
+        }
+        else
+        {
+            // Fallback: If it contains textual string modifiers (e.g., '3.8B' or '3.8 B')
+            try
+            {
+                string cleanedText = Regex.Replace(rawMight, "[^0-9.]", "");
+                if (double.TryParse(cleanedText, out double cleanNum))
+                {
+                    mightVal = (long)(cleanNum * 1000000000);
+                }
+            }
+            catch { mightVal = 0; }
+        }
+        string rawRank = reader.GetValue(3)?.ToString() ?? "0";
+        int rankVal = 0;
+        //strip out any non-numeric characters from the rank value
+        try
+        {
+            string cleanedText = Regex.Replace(rawRank, "[^0-9]", "");
+            if (Int32.TryParse(cleanedText, out Int32 cleanNum))
+            {
+                rankVal = cleanNum;
+            }
+        }
+        catch { rankVal = 0; }
+        //convert TimeTillWowSummary to total minutes
+        // Match digits for days, hours, and minutes using Regex
+        string timetoWowstr = reader.GetValue(6)?.ToString() ?? "";
+        Match match = Regex.Match(timetoWowstr, @"(\d+)\s*days?,\s*(\d+):(\d+)");
+        Int32 totalMinutes = 0;
+        if (match.Success)
+        {
+            int days = int.Parse(match.Groups[1].Value);
+            int hours = int.Parse(match.Groups[2].Value);
+            int minutes = int.Parse(match.Groups[3].Value);
+
+            // Create a TimeSpan object
+            TimeSpan timeSpan = new TimeSpan(days, hours, minutes, 0);
+
+            // Get total minutes as a double (e.g., 2356)
+            totalMinutes = (Int32)timeSpan.TotalMinutes;
+
+            Console.WriteLine($"Total Minutes: {totalMinutes}");
+        }
+        else
+        {
+            Console.WriteLine("Invalid format.");
+        }
+
+        KingdomSnapshot newKingdom = new KingdomSnapshot
+        {
+            Timestamp = uploadTime,
+            KingdomNumber = Convert.ToInt32(reader.GetValue(0)),
+            Castles = Convert.ToInt32(reader.GetValue(1)),
+            InactiveCastles = Convert.ToInt32(reader.GetValue(2)),
+            Rank = rankVal,
+            MigrationCost = Convert.ToInt32(reader.GetValue(4)),
+            P50Might = mightVal, // Stored safely as raw byte integers in SQLite
+            TimeTillWowMinutes = totalMinutes,
+            TimeTillWowSummary = timetoWowstr,
+            FourChamps = Convert.ToInt32(reader.GetValue(11)),
+            FiveChamps = Convert.ToInt32(reader.GetValue(12)),
+            SixChamps = Convert.ToInt32(reader.GetValue(13)),
+            SevenPlusChamps = Convert.ToInt32(reader.GetValue(14)),
+            AccessoriesChamps = Convert.ToInt32(reader.GetValue(15))
+        };
+        return newKingdom;
     }
     private void LoadDataFromDatabase(GlobalSetting config)
     {
